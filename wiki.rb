@@ -4,6 +4,10 @@ require "csv"
 
 BASE_URL = "https://en.wikipedia.org"
 
+def is_wikipedia_link? text
+  text.start_with? '/wiki/'
+end
+
 # This can likely be significantly improved but the time taken to execute this is minimal compared to the time taken to retrieve the page
 def text_outside_brackets text
   pos = 0
@@ -47,16 +51,20 @@ def get_article url
 
   text = doc.css("div.mw-parser-output > p").to_s
   text += doc.css("div.mw-parser-output > ul > li").to_s
-    
+  text += doc.css("div.mw-parser-output > table").to_s
+
   text = text_outside_brackets text
 
   doc_fragment = Nokogiri::HTML(text)
 
   first_link = doc_fragment.css("p > a").first
   
-  if first_link.nil?
+  if first_link.nil? || !(is_wikipedia_link? first_link.attr('href'))
     first_link = doc_fragment.css("li > a").first
-    puts first_link.to_s
+  end
+  
+  if first_link.nil? || !(is_wikipedia_link? first_link.attr('href'))
+    first_link = doc_fragment.css("td > a").first
   end
   
   return article_title, first_link.attr('href'), first_link.attr('title')
@@ -82,11 +90,18 @@ def follow_link link, link_counts, link_cache
     puts "#{current_title} (#{current_link}) leads to #{next_title} (#{next_link}) #{cached ? 'CACHED' : 'NEW'}"
 
     if visited_links.include? next_link
-      puts "Loop detected - already visted: #{next_link} - total links: #{visited_links.length}"
+      puts "FAIL: already visted: #{next_link} - loop after #{visited_links.length} links"
       break
     elsif next_link == "/wiki/Philosophy"
-      puts "HIT PHILOSOPHY after #{visited_links.length} links"
+      puts "SUCCESS: hit Philosophy after #{visited_links.length} links"
       hit_philosophy = true
+      break
+    elsif next_link.start_with? 'https://en.wiktionary.org/wiki/'
+      puts "REDIRECT: changing Wiktionary link to Wikipdia link: #{next_link}"
+      next_link.gsub! 'https://en.wiktionary.org', ''
+    elsif !(is_wikipedia_link? next_link)
+      puts "FAIL: links to URL not on Wikipedia: #{next_link}"
+      break
     end
     current_link = next_link
   end
@@ -102,7 +117,7 @@ def follow_link link, link_counts, link_cache
   return visited_links.length, hit_philosophy, visited_links
 end
 
-runs = 20000
+runs = 20
 
 link_cache = {}
 link_counts = {}
@@ -114,9 +129,11 @@ start_time = Time.now
 biggest_depth = 0
 biggest_depth_page = ""
 depths = {}
+completed_runs = 0
 
-runs.times do
+runs.times do |run_num|
   begin
+    puts "Run ##{run_num}:"
     depth, success, visited_links = follow_link "/wiki/Special:Random", link_counts, link_cache
     total_depth += depth
     
@@ -136,6 +153,7 @@ runs.times do
       biggest_depth = depth
       biggest_depth_page = visited_links[1]
     end
+    completed_runs += 1
   rescue => e
     error_messages << e.message
   end
@@ -153,9 +171,6 @@ end
 
 
 # Handle link counts
-puts "Link counts:"
-puts link_counts.sort_by {|k, v| runs - v}.to_h
-
 CSV.open("link_counts_#{Time.now.to_i}.csv", "wb") do |csv|
   csv << ["link", "count"]
   lc = link_counts.sort_by {|k, v| runs - v}.to_h
@@ -172,8 +187,7 @@ CSV.open("depth_distribution_#{Time.now.to_i}.csv", "wb") do |csv|
   end
 end
 
-puts "Elapsed time: #{Time.now - start_time} seconds"
-puts "After #{runs} runs, total depth is #{total_depth} and hit Philosophy #{success_count} times"
 puts "Error messages were: #{error_messages}"
-
+puts "Elapsed time: #{Time.now - start_time} seconds"
+puts "After #{completed_runs} completed runs out of #{runs} runs planned, total depth is #{total_depth} and hit Philosophy #{success_count} times"
 puts "Deepest was #{biggest_depth_page} at depth #{biggest_depth}"
