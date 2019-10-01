@@ -117,7 +117,7 @@ def follow_link link, link_counts, link_cache
   return visited_links.length, hit_philosophy, visited_links
 end
 
-runs = 20
+runs = 20000
 
 link_cache = {}
 link_counts = {}
@@ -133,7 +133,7 @@ completed_runs = 0
 
 runs.times do |run_num|
   begin
-    puts "Run ##{run_num}:"
+    puts "Run ##{run_num} out of #{runs} planned:"
     depth, success, visited_links = follow_link "/wiki/Special:Random", link_counts, link_cache
     total_depth += depth
     
